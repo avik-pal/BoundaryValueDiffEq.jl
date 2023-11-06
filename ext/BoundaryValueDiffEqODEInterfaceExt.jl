@@ -1,12 +1,12 @@
 module BoundaryValueDiffEqODEInterfaceExt
 
-using SciMLBase, BoundaryValueDiffEq, ODEInterface
+using SciMLBase, BoundaryValueDiffEq, ForwardDiff, ODEInterface
 import SciMLBase: __solve
 import ODEInterface: OptionsODE, OPT_ATOL, OPT_RTOL, OPT_METHODCHOICE, OPT_DIAGNOSTICOUTPUT,
     OPT_ERRORCONTROL, OPT_SINGULARTERM, OPT_MAXSTEPS, OPT_BVPCLASS, OPT_SOLMETHOD,
     OPT_RHS_CALLMODE, RHS_CALL_INSITU, evalSolution
 import ODEInterface: Bvpm2, bvpm2_init, bvpm2_solve, bvpm2_destroy, bvpm2_get_x
-import ODEInterface: bvpsol
+import ODEInterface: bvpsol, colnew
 
 function _test_bvpm2_bvpsol_problem_criteria(_, ::SciMLBase.StandardBVProblem, alg::Symbol)
     throw(ArgumentError("$(alg) does not support standard BVProblem. Only TwoPointBVProblem is supported."))
@@ -19,15 +19,18 @@ end
 # BVPM2
 #------
 ## TODO: We can specify Drhs using forwarddiff if we want to
+## TODO: Support forwarding the initial guess function from the prob
 function __solve(prob::BVProblem, alg::BVPM2; dt = 0.0, reltol = 1e-3, kwargs...)
     _test_bvpm2_bvpsol_problem_criteria(prob, prob.problem_type, :BVPM2)
 
     has_initial_guess = prob.u0 isa AbstractVector{<:AbstractArray}
     no_odes, n, u0 = if has_initial_guess
         length(first(prob.u0)), (length(prob.u0) - 1), reduce(hcat, prob.u0)
-    else
+    elseif prob.u0 isa AbstractArray
         dt ≤ 0 && throw(ArgumentError("dt must be positive"))
         length(prob.u0), Int(cld((prob.tspan[2] - prob.tspan[1]), dt)), prob.u0
+    else
+        error("`prob.u0` as a function isn't currently supported for BVPM2.")
     end
 
     mesh = collect(range(prob.tspan[1], stop = prob.tspan[2], length = n + 1))
@@ -114,6 +117,37 @@ function __solve(prob::BVProblem, alg::BVPSOL; maxiters = 1000, reltol = 1e-3,
 
     return DiffEqBase.build_solution(prob, alg, sol_t, eachcol(sol_x);
         retcode = retcode ≥ 0 ? ReturnCode.Success : ReturnCode.Failure, stats)
+end
+
+# ------
+# COLNEW
+# ------
+function __solve(prob::BVProblem, alg::COLNEW; maxiters = 1000, reltol = 1e-3, dt = 0.0,
+        verbose = true, kwargs...)
+
+    ζ = alg.boundary_condition_points
+    sort!(ζ)  # For Safety: Should we remove this?
+
+    # The initial guess API is significantly different from our API
+    # We can probably support it in the future, if we stare hard into the formulation!
+    @assert prob.u0 isa Vector{<:Real} "COLNEW wrapper doesn't support initial guesses."
+    u = vec(prob.u0)
+    orders = ones(Int, length(u))
+
+    # `u` is same as `z` in colnew since we expect the users to pass in an ODE with
+    # max-order = 1
+    rhs!(t, u, du) = prob.f(du, u, prob.p, t)
+    function Drhs!(t, u, J)
+        if prob.f.jac !== nothing
+            prob.f.jac(J, u, prob.p, t)
+            return J
+        end
+        ForwardDiff.jacobian!(J, (du, u) -> prob.f(du, u, prob.p, t), similar(u), u)
+        return J
+    end
+
+    current_bc = nothing
+    current_bc_jac = nothing
 end
 
 end

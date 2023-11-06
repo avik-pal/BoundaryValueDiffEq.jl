@@ -228,3 +228,36 @@ Base.@kwdef struct BVPSOL{O} <: BoundaryValueDiffEqAlgorithm
     sol_method::Int = 0
     odesolver::O = nothing
 end
+
+"""
+    COLNEW(boundary_condition_points; bvpclass = 1, collocationpts = 4, subintervals = 5,
+        freezeintervals = false, maxsubintervals = 50, coarseguessgrid = true,
+        diagnostic_output = 1, addgridpoints = Float64[])
+
+Solve multi-point boundary value problem with colnew. For detailed documentation, see
+[ODEInterface.jl](https://github.com/luchr/ODEInterface.jl/blob/master/doc/SolverOptions.md#colnew).
+
+!!! note
+    Only available if the `ODEInterface` package is loaded.
+
+## Notes on using `COLNEW`
+
+1. Only Inplace Multi-Point Boundary Value Problems are supported.
+2. The `bc` at each point must be a scalar value (this is a condition imposed by the
+   internal solver itself), i.e. `length(boundary_condition_points) == length(bc(...))`.
+3. Initial Guess cannot be used currently! This will be fixed in later releases.
+4. If `prob.f.jac` is not provided, we will use `ForwardDiff` to automatically generate one.
+5. Unlike `COLNEW` we expect the user to reduce the order of the ODE to have a max
+   order = 1.
+"""
+Base.@kwdef struct COLNEW{N, S, A} <: BoundaryValueDiffEqAlgorithm
+    boundary_condition_points::N
+    bvpclass::Int = 1
+    collocationpts::Int = 4
+    subintervals::S = 5
+    freezeintervals::Bool = false
+    maxsubintervals::Int = 50
+    coarseguessgrid::Bool = true
+    diagnostic_output::Int = 1
+    addgridpoints::A = Float64[]
+end
